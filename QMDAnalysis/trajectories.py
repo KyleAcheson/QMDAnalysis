@@ -88,7 +88,7 @@ class Ensemble:
         self.trajs = trajs
         self.nts_max = nts_max
         self.ntrajs = len(self.trajs)
-        self.tcount = self.__get_time_count(self.trajs, self.nts_max)
+        self.tcount = self._get_time_count(self.trajs, self.nts_max)
         self.weights = [1.0/self.ntrajs for i in range(self.ntrajs)]
 
     def __iter__(self):
@@ -129,61 +129,12 @@ class Ensemble:
 
 
     @staticmethod
-    def __get_time_count(trajs, max_time):
+    def _get_time_count(trajs, max_time):
         """ Only used to get number of trajectories available at each time step of simulation (in case not equal)"""
         tcount = np.zeros(max_time, dtype=int)
         for traj in trajs:
             tcount[:traj.nts] += 1
         return tcount
-
-    def average_(self):
-        """
-        Compute the average trajectory of the whole ensemble.
-
-        Returns
-        -------
-        avg_traj: Trajectory
-            an instance of a trajectory object describing the 'average' trajectory
-        """
-        averaged_ensemble = np.zeros((self.trajs[0].geometries[0].natoms, 3, self.nts_max))
-        for trj in self:
-            for ts, molc in enumerate(trj):
-                averaged_ensemble[:, :, ts] += molc.coordinates
-        averaged_ensemble /= self.tcount
-        avg_traj_list = []
-        for ts in range(self.nts_max):
-            avg_traj_list.append(mol.Molecule(self.trajs[0].geometries[0].atom_labels, averaged_ensemble[:, :, ts]))
-
-        traj_type = type(self.trajs[0])
-        dt = self.trajs[0].dt
-        tvec = np.arange(0, self.nts_max+dt, dt)
-        if traj_type == TrajectorySH:
-            avg_traj = TrajectorySH(avg_traj_list, tvec)
-        else:
-            raise EnsembleTypeError('Only SH currently implemented')
-        return avg_traj
-
-
-
-    def calculate_internal_coords(self, bond_connectivity=None, angle_connectivity=None, dihedral_connectivity=None):
-        bond_lengths, angles, dihedrals = [], [], []
-        for idx, traj in enumerate(self):
-            ICs = traj.calculate_internal_coords(bond_connectivity, angle_connectivity, dihedral_connectivity) # ret an InternalCoordinates type
-            bond_lengths.append(ICs.bonds)
-            angles.append(ICs.angles)
-            dihedrals.append(ICs.dihedrals)
-            if idx == 0:
-                bond_connect = ICs.bond_connectivity
-                angle_connect = ICs.angle_connectivity
-                dihedral_connect = ICs.dihedral_connectivity
-        return mol.InternalCoordinates(bond_lengths,
-                                       bond_connect,
-                                       angles,
-                                       angle_connect,
-                                       dihedrals,
-                                       dihedral_connect)
-
-
 
     def broadcast(self, func, *args):
         """
@@ -204,8 +155,29 @@ class Ensemble:
         map_obj = map(lambda elem: func(elem, *args), self)
         return map_obj
 
-    #TODO: DEFINE A GENERALISED FILTER LIKE METHOD
 
+    def kabsch_rmsd(self, reference_structure, Hydrogens=True, Mirror=False):
+        """
+        Calculates the molecule RMSD via the Kabsch algorithm for a whole trajectory wrt some reference_structure.
+        This reference structure is typically chosen to be an important representative structure that corresponds to
+        a conical intersection, some minima or the time-zero structure.
+
+        Parameters
+        ----------
+        reference_structure : Molecule
+            a structure to take the RMSD wrt to
+        Hydrogens: bool
+            a flag to remove hydrogens from rmsd calculate (default is set to True, i.e. they are included)
+        Mirror: bool
+            a flag to check if the two structures are mirror images of eachother
+
+        Returns
+        -------
+        trj_rmsd: numpy.ndarray
+            a vector containing the RMSD over time
+        """
+        trj_rmsd = self.broadcast(Trajectory.kabsch_rmsd, reference_structure, Hydrogens, Mirror)
+        return np.array(list(trj_rmsd))
 
 
 
@@ -259,40 +231,6 @@ class Trajectory:
     def __iter__(self):
         return TrajectoryIterator(self)
 
-    def calculate_internal_coords(self, bond_connectivity=None, angle_connectivity=None, dihedral_connectivity=None):
-        """
-        A method to calculate *all* internal coordinates over the whole trajectory.
-        If the user is only interested in a selection of internal coordinates, for example one bond length or angle etc.,
-        it is recommended to call the `bond_length`, `angle` or `dihedral` methods directly by specifying the atom
-        connectivity.
-
-        Returns
-        -------
-        internal_coords: InternalCoordinates
-            a set of internal coordinates described by an InternalCoordinates object. This contains
-            an attribute for each IC and the list of connectivities for each. In the case that of di- and tri-atomic
-            molecules that have no defined angle or dihedral, those instance variables will be empty.
-            In the case of a trajectory, the bond/ angles/ dihedral properties of `InternalCoordinates`
-            are 2D numpy.ndarrays with dimensions [trajectory.nts, number bond lenghts/ angles/ dihedrals]
-        """
-        bond_lengths, angles, dihedrals = [], [], []
-        for idx, timestep in enumerate(self):
-            ICs = timestep.internal_coordinates(bond_connectivity, angle_connectivity, dihedral_connectivity) # ret an InternalCoordinates type
-            bond_lengths.append(ICs.bonds)
-            angles.append(ICs.angles)
-            dihedrals.append(ICs.dihedrals)
-            if idx == 0:
-                bond_connect = ICs.bond_connectivity
-                angle_connect = ICs.angle_connectivity
-                dihedral_connect = ICs.dihedral_connectivity
-        return mol.InternalCoordinates(bond_lengths,
-                                       bond_connect,
-                                       angles,
-                                       angle_connect,
-                                       dihedrals,
-                                       dihedral_connect)
-
-
     def broadcast(self, func, *args):
         """
         Broadcast a general function over the instance of `Trajectory` - applies function to the `Molecule`
@@ -310,8 +248,43 @@ class Trajectory:
         map_obj: map object
             a map object that yields the result of the function applied to each trajectory in `self.trajs`
         """
-        map_obj  = map(lambda elem: func(elem, *args), self)
+        map_obj = map(lambda elem: func(elem, *args), self)
         return map_obj
+
+    def get_angles(self, connectivity: list):
+        angles = self.broadcast(mol.Molecule.angle, connectivity)
+        return np.array(list(angles))
+
+    def get_bond_lengths(self, connectivity: list):
+        bl = self.broadcast(mol.Molecule.bond_length, connectivity)
+        return np.array(list(bl))
+
+    def get_dihedrals(self, connectivity: list):
+        dangles = self.broadcast(mol.Molecule.dihedral, connectivity)
+        return np.array(list(dangles))
+
+    def kabsch_rmsd(self, reference_structure, Hydrogens=True, Mirror=False):
+        """
+        Calculates the molecule RMSD via the Kabsch algorithm for a whole trajectory wrt some reference_structure.
+        This reference structure is typically chosen to be an important representative structure that corresponds to
+        a conical intersection, some minima or the time-zero structure.
+
+        Parameters
+        ----------
+        reference_structure : Molecule
+            a structure to take the RMSD wrt to
+        Hydrogens: bool
+            a flag to remove hydrogens from rmsd calculate (default is set to True, i.e. they are included)
+        Mirror: bool
+            a flag to check if the two structures are mirror images of eachother
+
+        Returns
+        -------
+        trj_rmsd: numpy.ndarray
+            a vector containing the RMSD over time
+        """
+        trj_rmsd = self.broadcast(mol.Molecule.kabsch_rmsd, reference_structure, Hydrogens, Mirror)
+        return np.array(list(trj_rmsd))
 
 
 
@@ -334,7 +307,6 @@ class TrajectorySH(Trajectory):
 
     """
 
-
     def __init__(self, geometries, time):
         self.geometries = geometries
         self.time = time
@@ -343,7 +315,7 @@ class TrajectorySH(Trajectory):
         self.weight = 1
 
     @classmethod
-    def init_from_xyz(cls, fpath: list):
+    def init_from_xyz(cls, fpath: str):
         """
         A method to instantiate a SH trajectory object from an xyz file
 
@@ -353,14 +325,14 @@ class TrajectorySH(Trajectory):
             path to trajectory output file
 
         """
-        geoms, tvec = cls.read_sharc(fpath)
+        geoms, tvec = cls._read_sharc(fpath)
         return cls(
             geometries=geoms,
             time=tvec
         )
 
     @staticmethod
-    def read_sharc(trj_file: str):
+    def _read_sharc(trj_file: str):
         """
         A method to read information on trajectories from SHARC output files (xyz files)
 
@@ -385,7 +357,7 @@ class TrajectorySH(Trajectory):
         f.close()
         Nat = int(first_line) # number atoms on first line
         with open(trj_file, 'r') as f:
-            count = 0;
+            count = 0
             for line in f:
                 count += 1
                 if count == skip_lines:
@@ -403,30 +375,6 @@ class TrajectorySH(Trajectory):
                     coords, labels = [], []
             geometries.append(mol.Molecule(labels, np.array(coords))) # quick patch for a bug where reader misses last geom
         return geometries, time
-
-
-    def Kabsch_rmsd(self, reference_structure, Hydrogens=True, Mirror=False):
-        """
-        Calculates the molecule RMSD via the Kabsch algorithm for a whole trajectory wrt some reference_structure.
-        This reference structure is typically chosen to be an important representative structure that corresponds to
-        a conical intersection, some minima or the time-zero structure.
-
-        Parameters
-        ----------
-        reference_structure : Molecule
-            a structure to take the RMSD wrt to
-        Hydrogens: bool
-            a flag to remove hydrogens from rmsd calculate (default is set to True, i.e. they are included)
-        Mirror: bool
-            a flag to check if the two structures are mirror images of eachother
-
-        Returns
-        -------
-        trj_rmsd: numpy.ndarray
-            a vector containing the RMSD over time
-        """
-        trj_rmsd = self.broadcast(mol.Molecule.Kabsch_rmsd, reference_structure, Hydrogens, Mirror)
-        return np.array(list(trj_rmsd))
 
     def remove_hydrogens(self):
         noh_traj = []

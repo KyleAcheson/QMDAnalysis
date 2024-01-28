@@ -41,5 +41,5 @@ for atom in m1:
     print(atom)
 
 # calculate the rmsd between two slightly different structures
-rmsd = Molecule.kabsh_rmsd(m, m1)
-print(f'The rmsd is between m and m1 is: {rmsd}')
+rmsd = Molecule.kabsch_rmsd(m, m1)
+print(f'The rmsd between m and m1 is: {rmsd}')

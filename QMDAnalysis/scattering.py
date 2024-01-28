@@ -3,6 +3,8 @@ import numpy.typing as npt
 from QMDAnalysis.molecules import Molecule
 from QMDAnalysis.trajectories import Ensemble, Trajectory, TrajectorySH
 
+BOHR = 0.52917721092  # Angstroms
+
 """
 Author: Kyle Acheson
 
@@ -141,14 +143,17 @@ def IAM_molecular_scattering(molecule, qvec, fq, FF, ELEC=False) -> npt.NDArray:
 
     Nq = len(qvec)
     Imol = np.zeros(Nq)
-    Iat = sum(fq**2)
+    Iat = np.sum(fq**2, axis=0)
     for i in range(molecule.natoms):
         for j in range(i+1, molecule.natoms):
-            qr_ij = qvec * np.linalg.norm(molecule.coordinates[i, :] - molecule.coordinates[j, :])
-            sin_qr_ij = np.sinc(qr_ij)
+            qr_ij = qvec * np.linalg.norm((molecule.coordinates[i, :] - molecule.coordinates[j, :])*BOHR)
+            sin_qr_ij = np.sin(qr_ij) / qr_ij
+            inds = np.where(np.abs(sin_qr_ij) < 1E-9)
+            sin_qr_ij[inds] = 1.0
+            #sin_qr_ij = np.sinc(qr_ij)
             Imol += 2 * FF[i, j, :] * sin_qr_ij
     if ELEC:
-        Itot = (qvec * Imol)/Iat # sM (modified scattering used in ued community)
+        Itot = (qvec * Imol) / Iat # sM (modified scattering used in ued community)
         return Itot
     else:
         Itot = Imol + Iat
@@ -185,7 +190,7 @@ def IAM_form_factors(molecule, qvec: npt.NDArray, ELEC=False) -> tuple[npt.NDArr
     if not isinstance(molecule, Molecule):
         raise MoleculeTypeError('IAM form factor computation requires a Molecule object')
     if ELEC:
-        fq = els(molecule.atom_labels, qvec)
+        fq = els(molecule.atom_labels, molecule.nelecs, qvec)
     else:
         fq = xrs(molecule.atom_labels, qvec)
 
@@ -217,7 +222,7 @@ def xrs(atoms, qAng):
     return fq
 
 
-def els(atoms, qAng):
+def els(atoms, atom_nums, qAng):
     """
     Caclulates the Mott-Bethe electron scattering form factors within IAM
     """
@@ -230,8 +235,7 @@ def els(atoms, qAng):
             tmp = np.zeros(Nq)
             for j in range(4):
                 tmp = tmp + IAM_factors_dict[atom]['a'][j] * np.exp(-IAM_factors_dict[atom]['b'][j] * (qAng / (4 * np.pi)) ** 2)
-            fq[i, :] = (atom - (IAM_factors_dict[atom]['c'] + tmp)) / qAng ** 2
-            # TODO: BUG HERE AS atom IS A LABEL - NO LONGER ATOMIC MASS - FIX
+            fq[i, :] = (atom_nums[i] - (IAM_factors_dict[atom]['c'] + tmp)) / qAng ** 2
         except KeyError:
             raise FormFactorParameterisationError(f'Atom {atom} not parameterised - edit IAM_factors_dict dict using ITC data')
     return fq

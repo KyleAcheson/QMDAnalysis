@@ -363,7 +363,7 @@ class Molecule:
         return centre_mass
 
     @staticmethod
-    def kabsh_rmsd(molecule, referance_structure, Hydrogens=True, Mirror=False):
+    def kabsch_rmsd(molecule, referance_structure, Hydrogens=True, Mirror=False):
         """
         A method to calculate the minimum RMSD between two geometries through the Kabsch algorithm.
         This works by calculating the centroid of each vector X (i.e. `sum(x)/ len(x)`) and aligning the two
@@ -688,7 +688,7 @@ class Frequency(Molecule):
         for i in range(self.natoms):
             pyscf_geom[i].insert(0, self.atom_labels[i])
 
-        mol = gto.M(atom=pyscf_geom, basis=kwargs['basis'], verbose=0)
+        mol = gto.M(atom=pyscf_geom, basis=kwargs['basis'], verbose=0, unit='AU')
 
         if method == 'dft':
             hessian = self._call_dft(mol, kwargs['xc'])
@@ -752,9 +752,9 @@ class Frequency(Molecule):
             period of the vibration in femtoseconds
 
         """
-        lambd = 0.01 /freq_wavenum # wavelength in m
-        time_period = 1 / (LIGHT_SPEED_SI /lambd ) # period of vibration in time (s)
-        return time_period*1e15 # convert to fs
+        lambd = 0.01 / freq_wavenum # wavelength in m
+        time_period = 1 / (LIGHT_SPEED_SI /lambd) # period of vibration in time (s)
+        return time_period * 1e15 # convert to fs
 
 
 
