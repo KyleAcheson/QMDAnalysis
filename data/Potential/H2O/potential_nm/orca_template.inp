@@ -1,0 +1,12 @@
+! B3LYP def2-SVP
+%base "gseq"
+*xyz 0 1
+  O   -0.00228865508207     -0.00292156991858      0.00000000000000
+  H   0.96462375825085      0.00265255295890      0.00000000000000
+  H   -0.22653838818914      0.93765413212626      0.00000000000000
+*
+$new_job
+! B3LYP def2-SVP MORead
+%base "perturb"
+%moinp "gseq.gbw" 
+* xyzfile 0 1 geometry.xyz

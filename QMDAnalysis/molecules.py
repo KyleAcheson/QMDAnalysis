@@ -69,6 +69,7 @@ class Molecule:
             self._coordinates = coordinates * (1 / BOHR)
         else:
             self._coordinates = coordinates
+        self.qcoordinates = None
 
     def __repr__(self):
         return f"Molecule({self._atom_labels}, {self.natoms}, {self.nelecs}, {self.Zs}, {self._coordinates.__repr__()})"
@@ -477,6 +478,22 @@ class Molecule:
         mol_noh = Molecule(new_labels, np.array(new_mol))
         return mol_noh
 
+    def cart2norm(self, ref_geom, transformation_matrix):
+        coords = self.mass_weighted_displacements(ref_geom)
+        return transformation_matrix.T @ coords.flatten()
+
+    def norm2cart(self, ref_geom, transformation_matrix):
+        if self.qcoordinates is None:
+            raise Exception('Molecule is already in Cartesian coordinates.')
+        mw_dcoords = transformation_matrix @ self.qcoordinates
+        umw_dcoords = mw_dcoords.reshape((self.natoms, 3)) * (1 / np.sqrt(self.Zs[:, np.newaxis]))
+        cart_coords = umw_dcoords + ref_geom.coordinates
+        return cart_coords
+
+    def mass_weighted_displacements(self, ref_geom):
+        mw_dcoords = (self.coordinates - ref_geom.coordinates) * np.sqrt(self.Zs[:, np.newaxis])
+        return mw_dcoords
+
     @staticmethod
     def __remove_hydrogens_pair(mol1, mol2):
         """Removes hydrogens for two molecule pairs - only used internally in kabsh_rmsd"""
@@ -647,8 +664,7 @@ class Frequency(Molecule):
         freqs = np.sqrt(np.abs(fconstants_au))  # in a.u.
         freqs_wavenums = freqs * AU2Hz / LIGHT_SPEED_SI * 1e-2
         normal_modes = np.einsum('z,zri->izr', self.Zs ** -.5, modes.reshape(self.natoms, 3, -1))
-        transformation_matrix = modes.T
-        return freqs_wavenums[-self.nvibs:], normal_modes, transformation_matrix
+        return freqs_wavenums[-self.nvibs:], normal_modes, modes
 
     def _construct_mass_matrix(self):
         masses = np.array(self.Zs)

@@ -286,6 +286,13 @@ class Trajectory:
         trj_rmsd = self.broadcast(mol.Molecule.kabsch_rmsd, reference_structure, Hydrogens, Mirror)
         return np.array(list(trj_rmsd))
 
+    def norm2cart(self, reference_structure, transformation_matrix):
+        coords = self.broadcast(mol.Molecule.norm2cart, reference_structure, transformation_matrix)
+        return np.array(list(coords))
+
+    def cart2norm(self, reference_structure, transformation_matrix):
+        qcoords = self.broadcast(mol.Molecule.cart2norm, reference_structure, transformation_matrix)
+        return np.array(list(qcoords))
 
 
 class TrajectorySH(Trajectory):
